@@ -5,7 +5,7 @@
 #include "string.h"
 
 
-
+struct meteo meteoOutDoor,meteoInDoor;
 
 
 

@@ -38,12 +38,13 @@ typedef enum {start_pipe=0,disconnected_pipe,connected_pipe,test_pipe}pipe_statu
 typedef enum {power_normal,power_lowing,power_highing}power_mode;
 typedef enum {data_null,data_meteoOutDoor,data_meteoInDoor,exactly_time}data_type;
 struct meteo{
-	uint32_t unixtime;
+	uint32_t measurement_time;
 	int16_t T;
 	uint16_t P,H,CO2;
 };
 struct meteo_data_struct{
 	uint32_t round_tripDelay;
+	int32_t client_time;
 	struct meteo meteo_data;
 	uint8_t query;
 	uint8_t type_of_data;
@@ -56,6 +57,7 @@ struct meteo_data_struct{
 } ;
 struct server_ack{
 	int32_t time_interval; //задержка перед следующей передачей
+	int32_t server_time;
 	struct meteo meteo_data;
 	mode_commands command;
 	q_commands ack_query;
@@ -76,7 +78,7 @@ struct sensors_data{
 	uint16_t lux;
 } ;
 
-
+extern struct meteo meteoOutDoor,meteoInDoor;
 
 void ShowMessage(char* str);
 void unixtimeToString(uint32_t unixT,char* str);

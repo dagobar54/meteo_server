@@ -7,8 +7,16 @@
 #include "receiver.h"
 #include "meteo_home.h"
 
-void receiver_init(){
 
+int32_t unixtime;
+uint8_t synchro_delta;
+
+uint8_t current_channel;
+uint8_t current_data_rate;
+uint8_t current_power;
+
+void receiver_init(){
+	unixtime = 946681200;
 }
 void PackDataToAck(struct ReceivedData *pPipeData)
 {
@@ -34,11 +42,14 @@ void PackDataToAck(struct ReceivedData *pPipeData)
 	case none_q:
 		break;
 	case get_time:
+		pipeData[pPipeData->pipeNo].ackData.ack_query = get_time;
 		break;
 	case get_meteoOutDoor:
+		pipeData[pPipeData->pipeNo].ackData.ack_query = get_meteoOutDoor;
 		pipeData[pPipeData->pipeNo].ackData.meteo_data = meteoOutDoor;
 		break;
 	case get_meteoInDoor:
+		pipeData[pPipeData->pipeNo].ackData.ack_query = get_meteoInDoor;
 		pipeData[pPipeData->pipeNo].ackData.meteo_data = meteoInDoor;
 		break;
 	}
@@ -46,7 +57,8 @@ void PackDataToAck(struct ReceivedData *pPipeData)
 void CreateNullAck(const uint8_t pipeNo)
 {
 	pipeData[pipeNo].ackData.time_interval = -1; //задержка перед следующей передачей
-	pipeData[pipeNo].ackData.meteo_data.unixtime=unixtime;
+	pipeData[pipeNo].ackData.server_time=unixtime;
+	pipeData[pipeNo].ackData.meteo_data.measurement_time=946681200;
 	pipeData[pipeNo].ackData.meteo_data.T =0;
 	pipeData[pipeNo].ackData.meteo_data.P = 0;
 	pipeData[pipeNo].ackData.meteo_data.H = 0;

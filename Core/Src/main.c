@@ -175,11 +175,11 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 64);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 64);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of myRadio */
-  osThreadDef(myRadio, StartRadio, osPriorityNormal, 0, 128);
+  osThreadDef(myRadio, StartRadio, osPriorityAboveNormal, 0, 128);
   myRadioHandle = osThreadCreate(osThread(myRadio), NULL);
 
   /* definition and creation of unixTimeCounter */
@@ -365,15 +365,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == GPIO_PIN_0)
   {
-	  //uint8_t tx_ok;
-	  //uint8_t tx_fail;
 	  static uint8_t rx_ready;
 	  static uint8_t status;
 	  static uint8_t pipeNo;
-	  //static uint8_t s;
 	  status = whatHappened();
-	  //tx_ok = status & (1 << TX_DS);
-	  //tx_fail = status & (1 << MAX_RT);
 	  rx_ready = status & (1 << RX_DR);
 	  if (rx_ready){
 		  while( available(&pipeNo)){              // Read all available payloads
@@ -382,11 +377,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			status = getPayloadSize();
 			read( &pPipeData->data, sizeof(struct meteo_data_struct));
 
-			writeAckPayload(pipeNo,&pipeData[pipeNo].ackData, sizeof(struct server_ack ));
 			osMessagePut(msgPipeAllocHandle, (uint32_t)pPipeData, 0);
 			}
 		}
-	  startListening();
   }
   else
     {
@@ -445,11 +438,20 @@ void StartRadio(void const * argument)
 	  setChannel(106);
 		  openWritingPipe(pipe_addresses[0]);
 		  openReadingPipe(1,pipe_addresses[1]); //0xF0F0F0F0E1LL);
-		  openReadingPipe(2,pipe_addresses[1]);
+		  openReadingPipe(2,pipe_addresses[2]);
+		  openReadingPipe(3,pipe_addresses[3]);
+		  openReadingPipe(4,pipe_addresses[4]);
+		  openReadingPipe(5,pipe_addresses[5]);
 		  CreateNullAck(1);
 		  writeAckPayload(1,&pipeData[1].ackData, sizeof(struct server_ack ));
 		  CreateNullAck(2);
 		  writeAckPayload(2,&pipeData[2].ackData, sizeof(struct server_ack ));
+		  CreateNullAck(3);
+		  writeAckPayload(3,&pipeData[3].ackData, sizeof(struct server_ack ));
+		  CreateNullAck(4);
+		  writeAckPayload(4,&pipeData[4].ackData, sizeof(struct server_ack ));
+		  CreateNullAck(5);
+		  writeAckPayload(5,&pipeData[5].ackData, sizeof(struct server_ack ));
 		  //writeAckPayload(3,&pipeData[3].ackData, sizeof(struct server_ack ));
 		  startListening();
 
@@ -467,15 +469,21 @@ void StartRadio(void const * argument)
 	  		{
 	  			struct ReceivedData *pPipeData = event.value.p;
 	  			PackDataToAck(pPipeData);
-#if defined( SERIAL_DEBUG)
-	  			unixtimeToString( pPipeData->data.meteo_data.unixtime,(char*)&strT);
+				writeAckPayload(pPipeData->pipeNo,&pipeData[pPipeData->pipeNo].ackData, sizeof(struct server_ack ));
+				startListening();
 
-	  			snprintf(str, 100, "\r\ngot: T=%i P=%i H=%i state=%i power=%i delay=%lius  time= %s Vcc=%i\r\n",
+#if defined( SERIAL_DEBUG)
+	  			unixtimeToString( pPipeData->data.meteo_data.measurement_time,(char*)&strT);
+
+	  			snprintf(str, 100, "\r\npipe %i got: T=%i P=%i H=%i state=%i power=%i q=%i type=%i delay=%lius  time= %s Vcc=%i\r\n",
+	  			pPipeData->pipeNo,
 	  			pPipeData->data.meteo_data.T,
 				pPipeData->data.meteo_data.P,
 				pPipeData->data.meteo_data.H,
 				pPipeData->data.state,
 				pPipeData->data.power,
+				pPipeData->data.query,
+				pPipeData->data.type_of_data,
 				pPipeData->data.round_tripDelay,
 				  //pPipeData->data.unixtime,
 				strT,
@@ -532,7 +540,7 @@ void StartUnixTimeCounter(void const * argument)
 		  {
 		    unixtimeToString(unixtime,(char*)&strT);
 #if defined( SERIAL_DEBUG)
-		    sprintf(str, "\r\nserver time: %s unixtime=%li  %li\r\n\r\n",strT,unixtime,event.value.v);
+		    snprintf(str,100, "\r\nserver time: %s unixtime=%li  %i\r\n\r\n",strT,unixtime,event.value.v);
 		    HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
 #endif
 
@@ -548,7 +556,7 @@ void CallbackUnixTimer(void const * argument)
 {
   /* USER CODE BEGIN CallbackUnixTimer */
   static uint32_t tim = 0;
-  tim++;
+  //tim++;
 
   osMessagePut(msgUnixTimerHandle, tim, 0);
   /*

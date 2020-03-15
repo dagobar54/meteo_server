@@ -23,12 +23,12 @@ struct ReceivedData {
 	struct meteo_data_struct data;
 };
 
-static int32_t unixtime;
-uint8_t synchro_delta;
+extern int32_t unixtime;
+extern uint8_t synchro_delta;
 
-uint8_t current_channel;
-uint8_t current_data_rate;
-uint8_t current_power;
+extern uint8_t current_channel;
+extern uint8_t current_data_rate;
+extern uint8_t current_power;
 
 void receiver_init();
 void PackDataToAck(struct ReceivedData *pPipeData);
