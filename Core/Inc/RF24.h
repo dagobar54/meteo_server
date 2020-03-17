@@ -197,6 +197,7 @@ uint8_t write_payload(const void* buf, uint8_t len, const uint8_t writeType);
 uint8_t read_payload(void* buf, uint8_t len);
 uint8_t get_status(void);
 void toggle_features(void);
+uint8_t nRF24_Check(void);
 
 /////////////////////////////////////////////////////////////////////////////
 void DWT_Init(void);

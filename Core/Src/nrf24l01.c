@@ -6,12 +6,13 @@
  */
 #include "RF24.h"
 
+
 #define DWT_CONTROL *(volatile unsigned long *)0xE0001000
 #define SCB_DEMCR   *(volatile unsigned long *)0xE000EDFC
 
 #define HIGH 1
 #define LOW  0
-
+#define nRF24_TEST_ADDR            "nRF24"
 extern SPI_HandleTypeDef hspi1;
 
 bool p_variant; /** False for RF24L01 and true for RF24L01P */
@@ -215,7 +216,43 @@ uint8_t NRF_Init(void)
 	write_register(NRF_CONFIG, (read_register(NRF_CONFIG)) & ~(1 << PRIM_RX));
 	return (setup != 0 && setup != 0xff);
 }
+void read_pipe_address(uint8_t reg,uint8_t* buf,uint8_t len)
+{
+	uint8_t addr = R_REGISTER | (REGISTER_MASK & reg);
+	uint8_t dt = 0;
 
+	csn(LOW);
+	HAL_SPI_TransmitReceive(&hspi1, &addr, &dt, 1, 1000);
+	HAL_SPI_TransmitReceive(&hspi1, (uint8_t*)0xff, (uint8_t*)buf, len, 1000);
+	csn(HIGH);
+}
+// Checks the presence of the nRF24L01
+// return:
+//   zero - transceiver is absent
+//   non-zero: transceiver is present
+uint8_t nRF24_Check(void) {
+	char rxbuf[sizeof(nRF24_TEST_ADDR) - 1U];
+	uint8_t *ptr = (uint8_t *)nRF24_TEST_ADDR;
+	uint8_t idx;
+	ce(LOW);
+	csn(HIGH);
+	HAL_Delay(5);
+	// Write the test address to the TX_ADDR register
+	write_registerMy(TX_ADDR, ptr, 5);
+
+	// Read it back to the buffer
+	read_pipe_address(TX_ADDR,rxbuf,5);
+	// Compare transmitted and received data...
+	for (idx = 0U; idx < sizeof(nRF24_TEST_ADDR) - 1U; idx++) {
+		if (rxbuf[idx] != *ptr++) {
+			// The transceiver is absent
+			return 0U;
+		}
+	}
+
+	// The transceiver is present
+	return !0U;
+}
 bool isChipConnected()
 {
 	uint8_t setup = read_register(SETUP_AW);

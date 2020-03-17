@@ -64,11 +64,12 @@ UART_HandleTypeDef huart1;
 
 osThreadId defaultTaskHandle;
 osThreadId myRadioHandle;
-osThreadId unixTimeCounterHandle;
 osMessageQId msgUnixTimerHandle;
 osMessageQId msgPipeAllocHandle;
-osTimerId osUnixTimerHandle;
+osTimerId unixTimerCounterHandle;
 osMutexId unixtimeMutexHandle;
+osSemaphoreId semTimeClockHandle;
+osSemaphoreId semRadioHandle;
 /* USER CODE BEGIN PV */
 osPoolDef(pipe_pool, 6, struct ReceivedData);
 osPoolId  pipe_pool_id;
@@ -83,8 +84,7 @@ static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void const * argument);
 void StartRadio(void const * argument);
-void StartUnixTimeCounter(void const * argument);
-void CallbackUnixTimer(void const * argument);
+void CallbackUnixTimerCounter(void const * argument);
 
 /* USER CODE BEGIN PFP */
 TickType_t xLastWakeTime,xAfterSent;
@@ -147,14 +147,23 @@ int main(void)
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
+  /* Create the semaphores(s) */
+  /* definition and creation of semTimeClock */
+  osSemaphoreDef(semTimeClock);
+  semTimeClockHandle = osSemaphoreCreate(osSemaphore(semTimeClock), 1);
+
+  /* definition and creation of semRadio */
+  osSemaphoreDef(semRadio);
+  semRadioHandle = osSemaphoreCreate(osSemaphore(semRadio), 1);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* Create the timer(s) */
-  /* definition and creation of osUnixTimer */
-  osTimerDef(osUnixTimer, CallbackUnixTimer);
-  osUnixTimerHandle = osTimerCreate(osTimer(osUnixTimer), osTimerPeriodic, NULL);
+  /* definition and creation of unixTimerCounter */
+  osTimerDef(unixTimerCounter, CallbackUnixTimerCounter);
+  unixTimerCounterHandle = osTimerCreate(osTimer(unixTimerCounter), osTimerPeriodic, NULL);
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
@@ -175,16 +184,12 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 64);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityAboveNormal, 0, 128);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of myRadio */
-  osThreadDef(myRadio, StartRadio, osPriorityAboveNormal, 0, 128);
+  osThreadDef(myRadio, StartRadio, osPriorityNormal, 0, 128);
   myRadioHandle = osThreadCreate(osThread(myRadio), NULL);
-
-  /* definition and creation of unixTimeCounter */
-  osThreadDef(unixTimeCounter, StartUnixTimeCounter, osPriorityNormal, 0, 128);
-  unixTimeCounterHandle = osThreadCreate(osThread(unixTimeCounter), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -365,21 +370,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == GPIO_PIN_0)
   {
-	  static uint8_t rx_ready;
-	  static uint8_t status;
-	  static uint8_t pipeNo;
-	  status = whatHappened();
-	  rx_ready = status & (1 << RX_DR);
-	  if (rx_ready){
-		  while( available(&pipeNo)){              // Read all available payloads
-			struct ReceivedData *pPipeData  = osPoolAlloc(pipe_pool_id);
-			pPipeData->pipeNo = pipeNo;
-			status = getPayloadSize();
-			read( &pPipeData->data, sizeof(struct meteo_data_struct));
-
-			osMessagePut(msgPipeAllocHandle, (uint32_t)pPipeData, 0);
-			}
-		}
+	  HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, 0);
+	  osSemaphoreRelease(semRadioHandle);
+	  //osMessagePut(msgPipeAllocHandle, 0, 0);
   }
   else
     {
@@ -399,11 +392,38 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+	osTimerStart(unixTimerCounterHandle, 1000);
+	static osEvent event;
+	static uint8_t strT[8];
+
+    //unixtimeToString(unixtime,(char*)&strT);
+#if defined( SERIAL_DEBUG)
+		  static char str[100] = {0,};
+		  sprintf(str, "start time: %s unixtime=%li\r\n",strT,unixtime);
+		  HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
+#endif
+
+
   /* Infinite loop */
   for(;;)
   {
-	HAL_GPIO_TogglePin(GPIOC,IND_Pin);
-    osDelay(500);
+
+	  //event = osMessageGet(msgUnixTimerHandle, osWaitForever);
+	  osSemaphoreWait(semTimeClockHandle,osWaitForever);
+
+		  unixtime++;
+		  //xSemaphoreGive(unixtimeMutexHandle);
+		  if (unixtime % 60 ==0)
+		  {
+		    unixtimeToString(unixtime,(char*)&strT);
+#if defined( SERIAL_DEBUG)
+		    snprintf(str,100, "\r\nserver time: %s unixtime=%li  %i\r\n\r\n",strT,unixtime,event.value.v);
+		    HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
+#endif
+		  }
+	  HAL_GPIO_TogglePin(GPIOC,IND_Pin);
+	  //osDelay(1000);
+	  osThreadYield ();
   }
   /* USER CODE END 5 */ 
 }
@@ -414,9 +434,9 @@ void StartDefaultTask(void const * argument)
 void StartRadio(void const * argument)
 {
   /* USER CODE BEGIN StartRadio */
-
+	static osEvent event;
 	  receiver_init();
-	  uint8_t res = isChipConnected(); // проверяет подключён ли модуль к SPI
+	  uint8_t res = nRF24_Check(); //isChipConnected(); // проверяет подключён ли модуль к SPI
 
 	  static char str[100] = {0,};
 	  snprintf(str, 64, "Connected: %s\n", res ? "OK" : "NOT OK");
@@ -431,7 +451,7 @@ void StartRadio(void const * argument)
 
 	  setPALevel(RF24_PA_LOW);
 	  //uint8_t status = getPALevel();
-	  //setAutoAck(false);
+	  setAutoAck(true);
 	  setPayloadSize(sizeof(struct meteo_data_struct));
 	  enableDynamicPayloads();
 	  enableAckPayload();
@@ -456,115 +476,78 @@ void StartRadio(void const * argument)
 		  startListening();
 
 
-	  static osEvent event;
+	  //static osEvent event;
 
   /* Infinite loop */
   for(;;)
   {
-	  	//static uint8_t pipeLine;
-	  	static char strT[8];
+	  static uint8_t rx_ready;
+	  static uint8_t status;
+	  static uint8_t pipeNo;
+	  static char strT[8];
+	  static struct ReceivedData rData;
 
-	  		event = osMessageGet(msgPipeAllocHandle, osWaitForever);
-	  		if(event.status == osEventMessage)
-	  		{
-	  			struct ReceivedData *pPipeData = event.value.p;
-	  			PackDataToAck(pPipeData);
-				writeAckPayload(pPipeData->pipeNo,&pipeData[pPipeData->pipeNo].ackData, sizeof(struct server_ack ));
-				startListening();
+	  //event = osMessageGet(msgPipeAllocHandle, osWaitForever);
+	  osSemaphoreWait(semRadioHandle,osWaitForever);
+	  status = whatHappened();
+	  rx_ready = status & (1 << RX_DR);
+	  if (rx_ready){
+		  while( available(&pipeNo)){              // Read all available payloads
+			status = getPayloadSize();
+			rData.pipeNo=pipeNo;
+			read( &rData.data, sizeof(struct meteo_data_struct));
+  			PackDataToAck(&rData);
+			writeAckPayload(pipeNo,&pipeData[pipeNo].ackData, sizeof(struct server_ack ));
 
-#if defined( SERIAL_DEBUG)
-	  			unixtimeToString( pPipeData->data.meteo_data.measurement_time,(char*)&strT);
 
-	  			snprintf(str, 100, "\r\npipe %i got: T=%i P=%i H=%i state=%i power=%i q=%i type=%i delay=%lius  time= %s Vcc=%i\r\n",
-	  			pPipeData->pipeNo,
-	  			pPipeData->data.meteo_data.T,
-				pPipeData->data.meteo_data.P,
-				pPipeData->data.meteo_data.H,
-				pPipeData->data.state,
-				pPipeData->data.power,
-				pPipeData->data.query,
-				pPipeData->data.type_of_data,
-				pPipeData->data.round_tripDelay,
-				  //pPipeData->data.unixtime,
+			#if defined( SERIAL_DEBUG)
+		  	unixtimeToString( rData.data.meteo_data.measurement_time,(char*)&strT);
+		  	snprintf(str, 100, "\r\npipe %i got: T=%i P=%i H=%i state=%i power=%i q=%i type=%i delay=%lius  time= %s Vcc=%i\r\n",
+		  		rData.pipeNo,
+		  		rData.data.meteo_data.T,
+				rData.data.meteo_data.P,
+				rData.data.meteo_data.H,
+				rData.data.state,
+				rData.data.power,
+				rData.data.query,
+				rData.data.type_of_data,
+				rData.data.round_tripDelay,
+					  //pPipeData->data.unixtime,
 				strT,
-				pPipeData->data.vcc);
-#endif
-	  			//ShowMessage(str);
-    			osPoolFree(pipe_pool_id,pPipeData);
-#if defined( SERIAL_DEBUG)
+				rData.data.vcc);
 	  			HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
-    			  unixtimeToString(unixtime,(char*)&strT);
+
+			  	unixtimeToString( pipeData[pipeNo].ackData.server_time,(char*)&strT);
+			  	snprintf(str, 100, "prepared ack: query=%i command=%i T=%i P=%i H=%i time= %s \r\n",
+			  		pipeData[pipeNo].ackData.ack_query,
+					pipeData[pipeNo].ackData.command,
+					pipeData[pipeNo].ackData.meteo_data.T,
+					pipeData[pipeNo].ackData.meteo_data.P,
+					pipeData[pipeNo].ackData.meteo_data.H,
+					strT);
+		  			HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
+	  			unixtimeToString(unixtime,(char*)&strT);
   	  			snprintf(str, 100, "now: time= %s\r\n",strT);
 	  			HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
 	  			osDelay(100);
-#endif
-	  		}
+			#endif
+
+		  	}
+		}
+		startListening();
+		osThreadYield ();
   }
   /* USER CODE END StartRadio */
 }
 
-/* USER CODE BEGIN Header_StartUnixTimeCounter */
-/**
-* @brief Function implementing the unixTimeCounter thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartUnixTimeCounter */
-void StartUnixTimeCounter(void const * argument)
+/* CallbackUnixTimerCounter function */
+void CallbackUnixTimerCounter(void const * argument)
 {
-  /* USER CODE BEGIN StartUnixTimeCounter */
-	osTimerStart(osUnixTimerHandle, 1000);
-	  static osEvent event;
-	  static uint8_t strT[8];
+  /* USER CODE BEGIN CallbackUnixTimerCounter */
+	//osMessagePut(msgUnixTimerHandle, 0, 0);
+	osSemaphoreRelease(semTimeClockHandle);
 
-	  unixtime = 946681200;
-	    unixtimeToString(unixtime,(char*)&strT);
-#if defined( SERIAL_DEBUG)
-		  static char str[100] = {0,};
-		  sprintf(str, "start time: %s unixtime=%li\r\n",strT,unixtime);
-		  HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
-#endif
-
-
-  /* Infinite loop */
-  for(;;)
-  {
-	  event = osMessageGet(msgUnixTimerHandle, osWaitForever);
-	  if(event.status == osEventMessage)
-      {
-
-		  xSemaphoreTake(unixtimeMutexHandle, portMAX_DELAY);
-		  unixtime++;
-		  xSemaphoreGive(unixtimeMutexHandle);
-		  if (unixtime % 60 ==0)
-		  {
-		    unixtimeToString(unixtime,(char*)&strT);
-#if defined( SERIAL_DEBUG)
-		    snprintf(str,100, "\r\nserver time: %s unixtime=%li  %i\r\n\r\n",strT,unixtime,event.value.v);
-		    HAL_UART_Transmit(&huart1, (uint8_t*)str, strlen(str), 1000);
-#endif
-
-		  }
-
-      }
-  }
-  /* USER CODE END StartUnixTimeCounter */
-}
-
-/* CallbackUnixTimer function */
-void CallbackUnixTimer(void const * argument)
-{
-  /* USER CODE BEGIN CallbackUnixTimer */
-  static uint32_t tim = 0;
-  //tim++;
-
-  osMessagePut(msgUnixTimerHandle, tim, 0);
-  /*
-  xSemaphoreTake(unixtimeMutexHandle, portMAX_DELAY);
-  _unixtime = tim;
-  xSemaphoreGive(unixtimeMutexHandle);
-  */
-  /* USER CODE END CallbackUnixTimer */
+  /* USER CODE END CallbackUnixTimerCounter */
 }
 
  /**
@@ -584,9 +567,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-  if (htim->Instance == TIM2) {
-    relayDelay++;
-  }
   /* USER CODE END Callback 1 */
 }
 

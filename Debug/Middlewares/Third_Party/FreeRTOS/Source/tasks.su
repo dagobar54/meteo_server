@@ -1,9 +1,8 @@
 tasks.c:575:15:xTaskCreateStatic	64	static,ignoring_inline_asm
 tasks.c:726:13:xTaskCreate	56	static
 tasks.c:817:13:prvInitialiseNewTask	40	static,ignoring_inline_asm
-tasks.c:1021:13:prvAddNewTaskToReadyList	16	static,ignoring_inline_asm
+tasks.c:1021:13:prvAddNewTaskToReadyList	16	static
 tasks.c:1106:7:vTaskDelete	24	static,ignoring_inline_asm
-tasks.c:1198:7:vTaskDelayUntil	48	static,ignoring_inline_asm
 tasks.c:1282:7:vTaskDelay	24	static,ignoring_inline_asm
 tasks.c:1398:14:uxTaskPriorityGet	24	static
 tasks.c:1420:14:uxTaskPriorityGetFromISR	40	static,ignoring_inline_asm
@@ -21,7 +20,7 @@ tasks.c:2224:12:xTaskGetTickCountFromISR	16	static
 tasks.c:2255:13:uxTaskGetNumberOfTasks	4	static
 tasks.c:2263:7:pcTaskGetName	24	static,ignoring_inline_asm
 tasks.c:2583:12:xTaskIncrementTick	32	static,ignoring_inline_asm
-tasks.c:2845:6:vTaskSwitchContext	32	static,ignoring_inline_asm
+tasks.c:2845:6:vTaskSwitchContext	40	static,ignoring_inline_asm
 tasks.c:2904:6:vTaskPlaceOnEventList	24	static,ignoring_inline_asm
 tasks.c:2921:6:vTaskPlaceOnUnorderedEventList	32	static,ignoring_inline_asm
 tasks.c:2947:7:vTaskPlaceOnEventListRestricted	32	static,ignoring_inline_asm
